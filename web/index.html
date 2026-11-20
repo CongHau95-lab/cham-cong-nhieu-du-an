@@ -475,6 +475,10 @@ body.painting .cell:hover { outline: 3px solid var(--pop); outline-offset: 1px; 
 .lt.pay input.ded.si { min-width: 104px; }
 .lt.pay input.ded.wide { min-width: 140px; text-align: left; }
 .lt.pay td.inp { padding: 4px 5px; }
+.lt.pay td:nth-child(2) { min-width: 178px; }
+.lt.pay td:nth-child(2) b { white-space: nowrap; }
+.lt.pay td:nth-child(2) small { white-space: normal; line-height: 1.35; }
+.hintline { margin: 0; padding: 8px 16px 10px; font-size: 13px; line-height: 1.5; }
 .lt.pay td:nth-child(2) small { display: block; }
 .lt .lnk { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
 .chartwrap { padding: 12px 14px 4px; border-bottom: 1px solid var(--line2, var(--line)); }
@@ -556,7 +560,7 @@ const DEFAULT_PAY = { meal: 100000, housing: 500000, bankBranch: '' };   // ins,
 /* ================= vai trò và phân quyền =================
    Mức: 0 không có · 1 xem · 2 xem và sửa.  att: chấm công · workers: danh sách công nhân · cats: hạng mục · set: cài đặt dự án
    pay: lương cá nhân (mức lương, CCCD, ngân hàng, bảng lương, phiếu lương) · cost: tổng chi phí theo hạng mục (không lộ lương từng người)
-   users: quản lý tài khoản (1 = Admin tổng; 2 = Chủ phần mềm; 3 = Chủ gốc) · proj: tạo, sửa, dừng dự án · slip: xem phiếu lương của chính mình */
+   users: quản lý tài khoản (1 = Admin tổng; 2 = Chủ phần mềm) · proj: tạo, sửa, dừng dự án · slip: xem phiếu lương của chính mình */
 const ROLE_VI = { owner: 'Chủ phần mềm', admin: 'Admin tổng', bod: 'BOD', eng: 'Kỹ sư hiện trường', padmin: 'Admin dự án', foreman: 'Đội trưởng dự án', worker: 'Công nhân', pending: 'Chờ cấp quyền' };
 const ROLE_SHORT = { owner: 'Chủ', admin: 'Admin tổng', bod: 'BOD', eng: 'Kỹ sư', padmin: 'Admin DA', foreman: 'Đội trưởng', worker: 'Công nhân', pending: 'Chờ' };
 const ROLE_ORDER = ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending'];
@@ -572,7 +576,7 @@ const ROLE_CAP = {
   pending: { att: 0, workers: 0, cats: 0, set: 0, pay: 0, cost: 0, users: 0, proj: 0, slip: 0 }
 };
 const ROLE_DESC = {
-  owner: 'Chủ phần mềm: toàn quyền với mọi dự án, mọi tài khoản. Người kế nhiệm do Chủ gốc chỉ định có quyền ngang Chủ, trừ việc không giáng quyền được Chủ gốc và các Chủ khác.',
+  owner: 'Chủ phần mềm: toàn quyền với mọi dự án, mọi tài khoản; được cấp thêm Chủ phần mềm khác.',
   admin: 'Admin tổng: toàn quyền với mọi dự án (chấm công, công nhân, lương, phiếu lương, cài đặt), cấp quyền cho các vai trò từ BOD trở xuống. Không đổi được Chủ hay Admin tổng khác.',
   bod: 'BOD: xem mọi dự án, gồm chấm công, tổng chi phí, lương và phiếu lương, xuất báo cáo. Không sửa dữ liệu.',
   eng: 'Kỹ sư hiện trường: chấm công và hạng mục của dự án được giao, xem tổng chi phí theo hạng mục. Không xem lương cá nhân.',
@@ -1033,7 +1037,7 @@ const pctTxt = v => fmt(cn(v)) + '%';
 /* ================= Firebase qua REST: đăng nhập + Firestore (nhiều dự án) + kênh đẩy tức thì =================
    Không dùng SDK. Dữ liệu:
      users/{uid}                 tài khoản: role owner|admin|bod|eng|padmin|foreman|worker|pending, projects[], workerId, seePay, seeCost, primary
-     admin/primary, admin/state  Chủ gốc (theo email, còn nguyên khi xóa tài khoản) và cờ "đã có Chủ"
+     admin/primary, admin/state  tài khoản gốc (theo email, còn nguyên khi xóa tài khoản) và cờ "đã có Chủ"
      projects/{pid}              dự án: name, code, status active|stopped
      projects/{pid}/cats         hạng mục công việc
      projects/{pid}/workers      công nhân (phần công khai) | wpriv: phần riêng (lương, CCCD, ngân hàng)
@@ -1169,10 +1173,10 @@ function makeFb(cfg) {
     }
     let x = d.data; const claim = !!jwtClaims(sess.idToken).email_verified;
     if (claim && !x.verified) { try { await commit([wMask('users/' + sess.uid, { verified: true }, false)], false); x = { ...x, verified: true }; } catch (e) { /* ignore */ } }
-    /* Chủ gốc đăng ký lại bằng đúng email: tự khôi phục quyền Chủ (quy tắc Firestore kiểm tra email trong admin/primary) */
+    /* tài khoản gốc đăng ký lại bằng đúng email: tự khôi phục quyền Chủ (quy tắc Firestore kiểm tra email trong admin/primary) */
     if (claim && !x.primary && x.role !== 'owner' && !triedPrimary) {
       triedPrimary = true;
-      try { await commit([wMask('users/' + sess.uid, { role: 'owner', primary: true }, false)], false); x = { ...x, role: 'owner', primary: true }; } catch (e) { /* không phải Chủ gốc */ }
+      try { await commit([wMask('users/' + sess.uid, { role: 'owner', primary: true }, false)], false); x = { ...x, role: 'owner', primary: true }; } catch (e) { /* không phải tài khoản gốc */ }
     }
     me = mapMe(x, claim);
     lastMeAt = Date.now();
@@ -1252,7 +1256,7 @@ function makeFb(cfg) {
   const userPatch = (uid, patch) => commit([wMask('users/' + uid, patch, false)], false);
   const userDelete = uid => http('POST', `${FS}:commit`, { writes: [{ delete: dn('users/' + uid) }] });
   /** tự xóa tài khoản của mình (cần nhập lại mật khẩu để Firebase cho phép xóa): xóa hồ sơ rồi xóa tài khoản đăng nhập.
-   *  Chủ gốc vẫn được giữ theo email trong admin/primary: đăng ký lại bằng đúng email này sẽ lấy lại quyền Chủ. */
+   *  tài khoản gốc vẫn được giữ theo email trong admin/primary: đăng ký lại bằng đúng email này sẽ lấy lại quyền Chủ. */
   async function deleteSelf(password) {
     const email = sess.email;
     const j = await authCall('signInWithPassword', { email, password, returnSecureToken: true });
@@ -1266,13 +1270,13 @@ function makeFb(cfg) {
     const r = await query('projects/' + id, 'workers');
     return r.docs.filter(d => !d.del).map(d => ({ id: d.id, name: d.data.name || '', pos: d.data.pos || '' })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'vi'));
   }
-  /** đã có Chủ chưa (cờ công khai admin/state); Chủ gốc nằm ở admin/primary, chỉ Chủ đọc được */
+  /** đã có Chủ chưa (cờ công khai admin/state); tài khoản gốc nằm ở admin/primary, chỉ Chủ đọc được */
   async function ownerExists() { try { return !!(await getDoc('admin/state')); } catch (e) { return true; } }
   async function claimOwner() {
     await commit([wSet('admin/primary', { email: sess.email.toLowerCase(), uid: sess.uid }, false), wSet('admin/state', { claimed: true }, false), wMask('users/' + sess.uid, { role: 'owner', primary: true }, false)], false);
     await loadMe();
   }
-  /** tài khoản Chủ từ bản cũ chưa có Chủ gốc: ghi nhận ngay email của mình làm Chủ gốc */
+  /** tài khoản Chủ từ bản cũ chưa có tài khoản gốc: ghi nhận ngay email của mình làm tài khoản gốc */
   async function ensurePrimary() {
     if (!me || me.role !== 'owner' || me.primary || !me.verified) return;
     if (await ownerExists()) return;
@@ -1684,8 +1688,8 @@ DLG.acct = () => {
   const proj = P.glob ? 'Mọi dự án' : projNames({ role: u.role, projects: u.projects });
   const verifyRow = `<div class="acrow">${u.verified ? '<span class="rb r-ok">Email đã xác minh</span>' : '<span class="rb r-warn">Email chưa xác minh</span>'}
         ${u.verified ? '' : '<small>Bấm liên kết trong thư xác minh gửi tới email, rồi bấm “Tôi đã xác minh”.</small><div class="brow"><button type="button" class="btn sm" data-act="ac-resend">Gửi lại thư xác minh</button><button type="button" class="btn sm" data-act="ac-verified">Tôi đã xác minh</button></div>'}</div>`;
-  const rk = myRoleKey(), badge = u.primary ? '<span class="rb r-owner">Chủ gốc</span>' : roleBadge(rk);
-  const del = d.del ? `<div class="acrow wide"><b>Xóa tài khoản của tôi</b><small>${u.primary ? 'Bạn là Chủ gốc: hệ thống vẫn nhớ email này. Đăng ký lại bằng đúng email, bạn lại là Chủ phần mềm.' : 'Hồ sơ và tài khoản đăng nhập bị xóa. Dữ liệu chấm công của dự án không bị ảnh hưởng.'}</small>
+  const rk = myRoleKey(), badge = roleBadge(rk);
+  const del = d.del ? `<div class="acrow wide"><b>Xóa tài khoản của tôi</b><small>${u.primary ? 'Hệ thống vẫn nhớ email này. Đăng ký lại bằng đúng email, bạn lại là Chủ phần mềm.' : 'Hồ sơ và tài khoản đăng nhập bị xóa. Dữ liệu chấm công của dự án không bị ảnh hưởng.'}</small>
         <label>Nhập lại mật khẩu để xác nhận<input id="ac-delpw" type="password" autocomplete="current-password"></label><div class="brow"><button type="button" class="btn danger sm" data-act="ac-del-go">Xóa vĩnh viễn tài khoản</button><button type="button" class="btn sm" data-act="ac-del-no">Không xóa</button></div></div>` : '';
   const foot = `<button type="button" class="btn danger" data-act="ac-out">Đăng xuất</button><button type="button" class="btn" data-act="ac-del">Xóa tài khoản…</button><span class="grow"></span><button type="button" class="btn" data-act="dlg-close">Đóng</button>`;
   return shell('', 'Tài khoản', `
@@ -1717,7 +1721,7 @@ A['ac-verified'] = async () => {
 function gateView() {
   if (!S.me) return `<div class="notice"><h2>CenSC Crew</h2><p>Chấm công công nhật nhiều dự án. Đăng nhập để xem dự án được cấp quyền cho bạn.</p><button type="button" class="btn pri" data-act="login">Đăng nhập / Đăng ký</button></div>`;
   if (!S.me.verified) return `<div class="notice warn"><h2>Cần xác minh email</h2><p>Hệ thống đã gửi thư tới <b>${esc(S.me.email)}</b>. Bấm liên kết trong thư (xem cả mục thư rác), rồi bấm nút bên dưới.</p><div class="brow"><button type="button" class="btn pri" data-act="ac-verified2">Tôi đã xác minh</button><button type="button" class="btn" data-act="ac-resend2">Gửi lại thư</button></div><p class="muted" id="gt-msg"></p></div>`;
-  if (S.ownerFree) return `<div class="notice"><h2>Chưa có tài khoản Chủ</h2><p>Hệ thống mới, chưa có Chủ. Nếu bạn là người thiết lập, bấm nút dưới để trở thành <b>Chủ gốc</b>. Email của bạn được ghi nhớ: dù sau này xóa tài khoản, đăng ký lại bằng đúng email này bạn vẫn là Chủ phần mềm. Chỉ làm được một lần.</p><button type="button" class="btn pri" data-act="claim">Tôi là Chủ</button><p class="muted" id="gt-msg"></p></div>`;
+  if (S.ownerFree) return `<div class="notice"><h2>Chưa có tài khoản Chủ</h2><p>Hệ thống mới, chưa có Chủ. Nếu bạn là người thiết lập, bấm nút dưới để trở thành <b>Chủ phần mềm</b>. Email của bạn được ghi nhớ: dù sau này xóa tài khoản, đăng ký lại bằng đúng email này bạn vẫn là Chủ phần mềm. Chỉ làm được một lần.</p><button type="button" class="btn pri" data-act="claim">Tôi là Chủ</button><p class="muted" id="gt-msg"></p></div>`;
   return `<div class="notice"><h2>Đang chờ chủ cấp quyền</h2><p>Tài khoản <b>${esc(S.me.email || S.me.name)}</b> đã sẵn sàng. Chủ hoặc Admin tổng cần chọn vai trò và dự án cho bạn. Sau khi được cấp, bấm Kiểm tra lại.</p><div class="brow"><button type="button" class="btn pri" data-act="recheck">Kiểm tra lại</button></div></div>`;
 }
 A['ac-verified2'] = async () => {
@@ -1823,8 +1827,7 @@ function acctEnsure() {
 /** tôi có đổi được tài khoản u không (khớp quy tắc Firestore) */
 function acctCan(u) {
   const me = S.me; if (!me || u.uid === me.uid || u.primary) return false;
-  if (me.primary) return true;
-  if (me.role === 'owner') return u.role !== 'owner';
+  if (me.role === 'owner') return true;
   if (me.role === 'admin') return ROLE_LOW.includes(u.role);
   return false;
 }
@@ -1832,8 +1835,7 @@ const ROLE_LOW = ['bod', 'eng', 'padmin', 'foreman', 'worker', 'pending'];
 /** các vai trò tôi được gán */
 function acctRoles() {
   const me = S.me;
-  if (me.primary) return ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending'];
-  if (me.role === 'owner') return ['admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending'];
+  if (me.role === 'owner') return ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending'];
   return ROLE_LOW;
 }
 const projNames = u => ROLE_GLOBAL.includes(u.role) ? 'Mọi dự án' : (u.projects || []).map(id => (S.projects[id] ? S.projects[id].name : '(đã xóa)')).join(', ') || '(chưa cấp)';
@@ -1845,7 +1847,7 @@ function viewAccts() {
   const pend = st.users.filter(u => u.role === 'pending').length;
   const rows = st.users.map(u => {
     const self = u.uid === me.uid, can = acctCan(u);
-    const badge = u.primary ? '<span class="rb r-owner">Chủ gốc</span>' : u.role === 'owner' ? '<span class="rb r-owner">Chủ · kế nhiệm</span>' : roleBadge(u.role);
+    const badge = roleBadge(u.role);
     const flags = [u.seePay ? 'xem lương' : '', u.seeCost ? 'xem chi phí' : ''].filter(Boolean).join(', ');
     return `<tr><td><b>${esc(u.name || '')}</b>${self ? ' <small>(bạn)</small>' : ''}<small>${esc(u.email || '')}</small></td>
       <td>${u.verified ? '<span class="rb r-ok">Đã xác minh</span>' : '<span class="rb r-warn">Chưa</span>'}</td>
@@ -1853,7 +1855,7 @@ function viewAccts() {
       <td class="act">${can ? `<button type="button" class="btn sm" data-act="u-edit" data-uid="${esc(u.uid)}">Cấp quyền</button>` : '<small class="muted">—</small>'}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">Chưa có tài khoản nào.</td></tr>';
   const legend = ROLE_ORDER.map(r => `<li>${roleBadge(r)} <span>${esc(ROLE_DESC[r])}</span></li>`).join('');
-  return `<section class="panel"><div class="ph"><h3>Tài khoản và phân quyền</h3><span class="muted grow">${pend ? `<b>${pend}</b> tài khoản đang chờ cấp quyền. ` : ''}${me.primary ? 'Bạn là Chủ gốc: chỉ bạn giáng quyền được mọi người, kể cả người kế nhiệm.' : me.role === 'owner' ? 'Bạn là người kế nhiệm: đổi quyền được mọi người trừ các Chủ.' : 'Bạn đổi quyền được BOD, Kỹ sư, Admin dự án, Đội trưởng, Công nhân.'}</span><button type="button" class="btn sm" data-act="ac-reload">Làm mới</button></div>
+  return `<section class="panel"><div class="ph"><h3>Tài khoản và phân quyền</h3><span class="muted grow">${pend ? `<b>${pend}</b> tài khoản đang chờ cấp quyền. ` : ''}${me.role === 'owner' ? 'Bạn cấp được quyền cho mọi tài khoản.' : 'Bạn đổi quyền được BOD, Kỹ sư, Admin dự án, Đội trưởng, Công nhân.'}</span><button type="button" class="btn sm" data-act="ac-reload">Làm mới</button></div>
     <div class="tscroll"><table class="lt"><thead><tr><th>Họ tên / Email</th><th>Email</th><th>Vai trò</th><th>Dự án</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <ul class="rolelist">${legend}<li><span class="rb r-ok">Thêm quyền</span> <span>Có thể bật riêng “xem lương” hoặc “xem chi phí” cho từng tài khoản (Kỹ sư, Đội trưởng).</span></li></ul></section>`;
 }
@@ -1876,7 +1878,7 @@ async function loadUeditWorkers() {
 }
 DLG.uedit = () => {
   const d = S.dlg, u = S.accts.users.find(x => x.uid === d.uid); if (!u) return shell('', 'Tài khoản', '<p>Không thấy tài khoản.</p>', '<button type="button" class="btn" data-act="dlg-close">Đóng</button>');
-  const roles = acctRoles().map(r => `<option value="${r}"${d.role === r ? ' selected' : ''}>${esc(r === 'owner' ? 'Chủ phần mềm (người kế nhiệm)' : ROLE_VI[r])}</option>`).join('');
+  const roles = acctRoles().map(r => `<option value="${r}"${d.role === r ? ' selected' : ''}>${esc(ROLE_VI[r])}</option>`).join('');
   const glob = ROLE_GLOBAL.includes(d.role), single = d.role === 'worker';
   const ps = projectList();
   const projUi = glob ? '<p class="muted wide">Vai trò này thấy mọi dự án.</p>'
@@ -1884,15 +1886,13 @@ DLG.uedit = () => {
     : `<div class="wide"><b>Dự án được giao</b><div class="chkgrid">${ps.map(p => `<label class="chk"><input type="${single ? 'radio' : 'checkbox'}" name="ue-p" data-chg="ue-proj" value="${esc(p.id)}"${d.projects.includes(p.id) ? ' checked' : ''}><span>${esc(p.name)}${p.status === 'stopped' ? ' (đã nghỉ)' : ''}</span></label>`).join('') || '<small class="muted">Chưa có dự án.</small>'}</div></div>`;
   const wk = single ? `<label class="wide">Hồ sơ công nhân của tài khoản này<select id="ue-wid" data-chg="ue-wid">${d.workers === null ? '<option value="">Đang tải…</option>' : `<option value="">(chưa gắn)</option>${d.workers.map(w => `<option value="${esc(w.id)}"${d.workerId === w.id ? ' selected' : ''}>${esc(w.name)}${w.pos ? ' · ' + esc(w.pos) : ''}</option>`).join('')}`}</select></label><p class="muted wide">Công nhân đăng nhập chỉ thấy phiếu lương của chính hồ sơ này, sau khi phiếu được phát hành.</p>` : '';
   const flags = ['eng', 'foreman'].includes(d.role) ? `<div class="wide brow"><label class="chk"><input type="checkbox" data-chg="ue-pay"${d.seePay ? ' checked' : ''}><span>Cho xem lương cá nhân (ngoại lệ)</span></label><label class="chk"><input type="checkbox" data-chg="ue-cost"${d.seeCost ? ' checked' : ''}><span>Cho xem tổng chi phí</span></label></div>` : '';
-  const heir = S.me.primary && d.role !== 'owner' && u.verified ? `<button type="button" class="btn" data-act="ue-heir">Chỉ định làm người kế nhiệm…</button>` : '';
-  const conf = d.confirm === 'heir' ? `<div class="abar wide"><span>Người kế nhiệm được ghi rõ là <b>Chủ phần mềm</b>: toàn quyền như bạn với mọi dự án, mọi tài khoản, được cấp và giáng quyền người khác. Chỉ không giáng quyền được bạn (Chủ gốc) và các Chủ khác. Chỉ bạn giáng quyền được mọi người.</span><button type="button" class="btn pri sm" data-act="ue-heir-ok">Xác nhận kế nhiệm</button></div>` : '';
   return shell('', 'Cấp quyền: ' + esc(u.name || u.email), `<div class="frm cols">
     <div class="acrow wide"><b>${esc(u.name || '')}</b><small>${esc(u.email || '')}</small></div>
     <label class="wide">Vai trò<select id="ue-role" data-chg="ue-role">${roles}</select></label>
     <p class="muted wide" id="ue-desc">${esc(ROLE_DESC[d.role] || '')}</p>
-    ${projUi}${wk}${flags}${conf}
+    ${projUi}${wk}${flags}
     <p class="err wide" id="ue-err" role="alert">${esc(d.msg || '')}</p></div>`,
-    `<button type="button" class="btn danger" data-act="ue-del">${d.confirm === 'del' ? 'Bấm lần nữa để xóa tài khoản' : 'Xóa tài khoản'}</button>${heir}<span class="grow"></span><button type="button" class="btn" data-act="dlg-close">Hủy</button><button type="button" class="btn pri" data-act="ue-save">Lưu</button>`);
+    `<button type="button" class="btn danger" data-act="ue-del">${d.confirm === 'del' ? 'Bấm lần nữa để xóa tài khoản' : 'Xóa tài khoản'}</button><span class="grow"></span><button type="button" class="btn" data-act="dlg-close">Hủy</button><button type="button" class="btn pri" data-act="ue-save">Lưu</button>`);
 };
 C['ue-role'] = el => { const d = S.dlg; d.role = el.value; d.confirm = ''; if (d.role === 'worker') { d.projects = d.projects.slice(0, 1); d.workers = null; } if (['owner', 'admin', 'bod'].includes(d.role)) d.projects = []; if (!['eng', 'foreman'].includes(d.role)) { d.seePay = false; d.seeCost = false; } renderDlg(); loadUeditWorkers(); };
 C['ue-proj'] = el => { const d = S.dlg, v = el.value; if (d.role === 'worker') { d.projects = [v]; d.workers = null; d.workerId = ''; renderDlg(); loadUeditWorkers(); } else { d.projects = el.checked ? [...new Set([...d.projects, v])] : d.projects.filter(x => x !== v); } };
@@ -1904,11 +1904,6 @@ A['ue-save'] = async () => {
   if (!['owner', 'admin', 'bod', 'pending'].includes(d.role) && !d.projects.length) { err.textContent = 'Chọn ít nhất một dự án cho vai trò này.'; return; }
   const patch = { role: d.role, projects: ROLE_GLOBAL.includes(d.role) || d.role === 'pending' ? [] : d.projects, workerId: d.role === 'worker' ? d.workerId : '', seePay: d.seePay, seeCost: d.seeCost };
   try { await userSet(d.uid, patch); closeDlgNow(); render(); } catch (e) { err.textContent = authErr(e); }
-};
-A['ue-heir'] = () => { S.dlg.confirm = 'heir'; renderDlg(); };
-A['ue-heir-ok'] = async () => {
-  const d = S.dlg, err = $('#ue-err');
-  try { await userSet(d.uid, { role: 'owner', projects: [], workerId: '', seePay: false, seeCost: false }); closeDlgNow(); render(); toast('Đã chỉ định người kế nhiệm.'); } catch (e) { err.textContent = authErr(e); }
 };
 A['ue-del'] = async () => {
   const d = S.dlg;
@@ -3206,7 +3201,7 @@ function buildSlipsXlsx(snaps) {
 }
 
 /* ================= bảng lương theo kỳ tùy chỉnh, khấu trừ, phiếu lương ================= */
-const fnum = v => (v === '' || v == null) ? '' : String(Math.round(cn(v)));
+const fnum = v => (v === '' || v == null) ? '' : vnd(Math.round(cn(v)));
 function periodSlips(from, to) { return Object.values(S.slips).filter(x => x.from === from && x.to === to && x.pub); }
 
 function viewPay() {
@@ -3245,8 +3240,9 @@ function viewPay() {
   const pubN = periodSlips(from, to).length;
   return `${rangeBar(can ? '<button type="button" class="btn" data-act="bulk-open">Điều chỉnh lương hàng loạt…</button>' : '')}
   <div class="cards"><div class="dcard"><b>${fmt(T.cong)}</b><span>công</span></div><div class="dcard"><b>${fmt(T.ot)}</b><span>giờ tăng ca</span></div><div class="dcard"><b>${vnd(T.total)}</b><span>tổng thu nhập (đ)</span></div><div class="dcard"><b>${vnd(T.pit + T.bhxh + T.union + T.other)}</b><span>tổng khấu trừ (đ)</span></div><div class="dcard"><b>${vnd(T.net)}</b><span>thực nhận (đ)</span></div></div>
-  <section class="panel"><div class="ph"><h3>Bảng lương ${periodTxt()}</h3><span class="muted grow">Lương ngày = lương tháng ÷ ${divisor()}. Công quy đổi = công + giờ tăng ca ÷ ${S.settings.otHours} × ${fmt(S.settings.otFactor)}. ${can ? 'BHXH, công đoàn, thuế tự tính theo tỷ lệ trong Cài đặt; nhập số khác vào ô để ghi đè (ô nền vàng là số nhập tay, xóa trống để tự tính lại).' : 'Khấu trừ tự tính theo tỷ lệ đã cài đặt.'}</span>
+  <section class="panel"><div class="ph"><h3>Bảng lương ${periodTxt()}</h3><span class="grow"></span>
     <button type="button" class="btn" data-act="xp-pay">Xuất bảng lương</button><button type="button" class="btn" data-act="slip-open">Phiếu lương…</button><button type="button" class="btn pri" data-act="xp-bcc">Xuất BCC (theo mẫu)</button></div>
+  <p class="muted hintline">Lương ngày = lương tháng ÷ ${divisor()}. Công quy đổi = công + giờ tăng ca ÷ ${S.settings.otHours} × ${fmt(S.settings.otFactor)}. ${can ? 'BHXH, công đoàn, thuế tự tính theo tỷ lệ trong Cài đặt; nhập số khác vào ô để ghi đè (ô nền vàng là số nhập tay, xóa trống để tự tính lại).' : 'Khấu trừ tự tính theo tỷ lệ đã cài đặt.'}</p>
   ${can ? `<div class="wfil insbar"><label class="chk"><input type="checkbox" data-chg="ins-on"${insOn(from, to) ? ' checked' : ''}><span><b>Trừ BHXH, đoàn phí và thuế lũy tiến (tính cả tháng) trong kỳ này</b> <small>BHXH ${fmt(insCfg().bhxh + insCfg().bhyt + insCfg().bhtn)}% · đoàn phí ${fmt(insCfg().union)}% · thuế theo biểu 5 bậc. Kỳ từ 25 ngày tự bật; kỳ nửa tháng thì tích khi cần.</small></span></label></div>
   <div class="wfil"><button type="button" class="btn sm" data-act="ded-copy">Chép khấu trừ từ kỳ trước</button><button type="button" class="btn sm" data-act="slip-pub">Phát hành phiếu cho công nhân (${rows.filter(x => sel[x.w.id] !== false).length} người)</button>${pubN ? `<span class="rb r-ok">Đã phát hành ${pubN} phiếu kỳ này</span><button type="button" class="lnk" data-act="slip-unpub">Thu hồi</button>` : '<span class="muted">Chưa phát hành phiếu kỳ này.</span>'}</div>` : ''}
   <div class="tscroll"><table class="lt pay"><thead><tr><th>#</th><th>Họ tên</th><th>Lương tháng</th><th>Công</th><th>TC (giờ)</th><th>Công quy đổi</th><th>Lương</th><th>Cơm</th><th>Nhà trọ</th><th>Điều chỉnh</th><th>Tổng thu nhập</th><th>Lương đóng BHXH</th><th>BHXH + BHYT + BHTN</th><th>Đoàn phí công đoàn</th><th>Thuế TNCN</th><th>Khác</th><th>Ghi chú KT</th><th>Thực nhận</th><th>Phiếu</th></tr></thead>
