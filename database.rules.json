@@ -1,0 +1,13 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rev": {
+      "$pid": {
+        ".read": true,
+        ".write": "auth != null && auth.token.email_verified === true",
+        ".validate": "newData.isNumber()"
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "appId": "vn.central.chamcongda",
+  "appName": "CenSC Crew",
+  "webDir": "web",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

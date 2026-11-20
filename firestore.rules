@@ -1,0 +1,105 @@
+rules_version = '2';
+
+// Quy tắc truy cập "Chấm công nhiều dự án".
+// Dán toàn bộ nội dung này vào Firebase Console > Firestore Database > Rules > Publish.
+//
+// Mô hình:
+//   users/{uid}      role: 'owner' (Chủ) hoặc 'member'. Tài khoản thường được Chủ cấp đúng MỘT dự án (projectId)
+//                    với quyền access: viewer (Xem) | commenter (Nhận xét) | editor (Chỉnh sửa), và cờ seePay (xem lương).
+//   projects/{pid}   dự án và mọi dữ liệu của nó. Chỉ Chủ hoặc tài khoản được cấp dự án đó mới đọc được.
+//   Không có quyền khách: phải đăng nhập và xác minh email.
+//   Lương, CCCD, ngân hàng... nằm riêng ở wpriv và cpriv: chỉ Chủ hoặc tài khoản được bật "xem lương" đọc được.
+//   Dự án đã nghỉ (status = stopped): tài khoản thường không ghi được nữa.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function verified() { return signedIn() && request.auth.token.email_verified == true; }
+    function hasUser() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isOwner() { return verified() && hasUser() && me().role == 'owner'; }
+    function inProject(pid) { return verified() && hasUser() && me().role == 'member' && me().projectId == pid; }
+    function running(pid) { return get(/databases/$(database)/documents/projects/$(pid)).data.status != 'stopped'; }
+    function canRead(pid) { return isOwner() || inProject(pid); }
+    function canEdit(pid) { return isOwner() || (inProject(pid) && me().access == 'editor' && running(pid)); }
+    function canComment(pid) { return isOwner() || (inProject(pid) && me().access in ['commenter', 'editor'] && running(pid)); }
+    function seesPay(pid) { return isOwner() || (inProject(pid) && me().seePay == true); }
+
+    match /projects/{pid} {
+      allow get: if canRead(pid);
+      allow list: if isOwner();
+      allow write: if isOwner();
+
+      match /cats/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
+      match /workers/{id} { allow read: if canRead(pid); allow write: if canEdit(pid); }
+      match /days/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
+      match /config/{id}  { allow read: if canRead(pid); allow write: if canEdit(pid); }
+      match /meta/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
+
+      // dữ liệu riêng: lương, CCCD, ngân hàng, tiền cơm / nhà trọ
+      match /wpriv/{id}   { allow read: if seesPay(pid); allow write: if canEdit(pid) && seesPay(pid); }
+      match /cpriv/{id}   { allow read: if seesPay(pid); allow write: if canEdit(pid) && seesPay(pid); }
+
+      // góp ý, đề xuất, nhận xét
+      match /sug/{id} {
+        allow read: if canEdit(pid) || (canRead(pid) && resource.data.uid == request.auth.uid);
+        allow create: if canComment(pid)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.status == 'open'
+          && request.resource.data.text is string && request.resource.data.text.size() <= 1500
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'kind', 'date', 'text', 'status', 'reply', 'createdAt', '_ts']);
+        allow update: if canEdit(pid);
+        allow delete: if canEdit(pid);
+      }
+    }
+
+    // ---- tài khoản ----
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isOwner());
+      allow list: if isOwner();
+
+      // tự tạo hồ sơ của mình: luôn là member, chưa có dự án, chỉ xem, không xem lương
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'projectId', 'access', 'seePay', 'verified', 'createdAt'])
+        && request.resource.data.role == 'member'
+        && request.resource.data.projectId == ''
+        && request.resource.data.access == 'viewer'
+        && request.resource.data.seePay == false
+        && request.resource.data.verified == false
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60;
+
+      allow update: if
+        // Chủ cấp dự án, quyền, xem lương; chỉ trao quyền Chủ cho email đã xác minh
+        (isOwner()
+          && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'projectId', 'access', 'seePay', 'verified', 'createdAt'])
+          && request.resource.data.role in ['member', 'owner']
+          && request.resource.data.access in ['viewer', 'commenter', 'editor']
+          && (request.resource.data.role != 'owner' || resource.data.role == 'owner' || resource.data.verified == true))
+        ||
+        // người dùng chỉ sửa được tên và cờ "đã xác minh email"
+        (request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'verified'])
+          && request.resource.data.name is string && request.resource.data.name.size() <= 60
+          && (request.resource.data.verified == resource.data.verified
+              || (request.resource.data.verified == true && request.auth.token.email_verified == true)))
+        ||
+        // người đầu tiên nhận quyền Chủ (khi admin/owner đã ghi uid của chính mình)
+        (request.auth.uid == uid && verified()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+          && request.resource.data.role == 'owner'
+          && get(/databases/$(database)/documents/admin/owner).data.uid == request.auth.uid);
+
+      allow delete: if isOwner();
+    }
+
+    // ---- ghi nhận Chủ: ai đăng nhập cũng đọc được (để biết đã có Chủ chưa); chỉ ghi được lần đầu hoặc do Chủ ----
+    match /admin/{id} {
+      allow get: if signedIn();
+      allow create: if verified() && id == 'owner' && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid']);
+      allow update, delete: if isOwner();
+    }
+  }
+}
