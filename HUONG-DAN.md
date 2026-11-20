@@ -29,7 +29,7 @@ Tab Actions > Build chạy ra: trang web (iPhone cài từ Safari: Chia sẻ > T
 ## 3b. Vai trò và quyền
 | Vai trò | Quyền chính |
 |---|---|
-| Chủ phần mềm | Toàn quyền. Chủ chính (người đầu tiên) là người duy nhất bổ nhiệm/miễn nhiệm Chủ khác, và không ai giáng quyền được. |
+| Chủ phần mềm | Toàn quyền với mọi dự án, mọi tài khoản; được cấp thêm Chủ phần mềm khác. |
 | Admin tổng | Mọi dự án, mọi số liệu kể cả lương. Cấp quyền cho BOD trở xuống. Không đổi được Chủ hay Admin tổng khác. |
 | BOD | Xem mọi dự án, mọi chi phí và lương. Không chỉnh sửa. |
 | Kỹ sư hiện trường | Chấm công, sửa hạng mục, xem công nhân; xem tổng chi phí theo hạng mục nhưng không xem lương cá nhân. |
@@ -38,7 +38,7 @@ Tab Actions > Build chạy ra: trang web (iPhone cài từ Safari: Chia sẻ > T
 | Công nhân | Chỉ xem phiếu lương của chính mình khi được công bố. |
 Dự án đã dừng: mọi vai trò trừ Chủ/Admin tổng chỉ được xem.
 
-**Người kế nhiệm**: Tài khoản > chọn người > "Chỉ định làm người kế nhiệm…" (chỉ Chủ chính thấy nút này). Người này có toàn quyền như Chủ, cấp và giáng quyền người khác, nhưng không giáng quyền được Chủ chính và không tạo thêm Chủ.
+**Cấp thêm Chủ phần mềm**: Tài khoản > chọn người > Vai trò = Chủ phần mềm > Lưu.
 
 ## 3c. Lương, phiếu lương, phân tích
 - Tab **Lương**: chọn kỳ (lịch tùy chỉnh) hoặc theo hạng mục. Nhập thuế TNCN, BHXH, phí công đoàn, khoản khác cho từng người (Admin dự án, Admin tổng, Chủ). Xuất bảng lương Excel (3 trang: Bảng lương, Theo hạng mục, Chi tiết hạng mục).

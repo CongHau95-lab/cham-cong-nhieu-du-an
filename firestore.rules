@@ -4,7 +4,7 @@ rules_version = '2';
 // Dán toàn bộ nội dung này vào Firebase Console > Firestore Database > Rules > Publish.
 //
 // Vai trò (users/{uid}.role):
-//   owner    Chủ phần mềm. Chủ gốc (primary = true, ghi theo email trong admin/primary) và người kế nhiệm (owner, không có primary).
+//   owner    Chủ phần mềm (nhiều tài khoản được). Tài khoản gốc (primary = true, ghi theo email trong admin/primary) không ai giáng quyền hoặc xóa được.
 //   admin    Admin tổng: mọi dự án, cấp quyền cho bod/eng/padmin/foreman/worker.
 //   bod      BOD: xem mọi dự án, kể cả lương. Không sửa.
 //   eng      Kỹ sư hiện trường: chấm công + hạng mục của dự án được giao, xem chi phí tổng, KHÔNG xem lương cá nhân.
@@ -86,8 +86,8 @@ service cloud.firestore {
     }
 
     // ---- tài khoản ----
-    // Cấp bậc: Chủ gốc đổi được mọi người (trừ chính mình); người kế nhiệm đổi được mọi người trừ các Chủ;
-    // Admin tổng chỉ đổi được bod/eng/padmin/foreman/worker/pending. Không ai giáng quyền được Chủ gốc.
+    // Cấp bậc: Chủ phần mềm đổi được mọi người (trừ chính mình), kể cả cấp thêm Chủ phần mềm khác;
+    // Admin tổng chỉ đổi được bod/eng/padmin/foreman/worker/pending. Không ai giáng quyền hoặc xóa được tài khoản gốc (primary).
     function isLow(r) { return r in ['bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']; }
     function acctKeys() { return ['email', 'name', 'role', 'projects', 'workerId', 'seePay', 'seeCost', 'primary', 'verified', 'createdAt']; }
     function manageOk(uid, t, n) {
@@ -100,8 +100,7 @@ service cloud.firestore {
         && n.get('projects', []) is list && n.get('projects', []).size() <= 100
         && n.role in ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']
         && (
-          isPrimary()
-          || (isOwner() && t.role != 'owner' && n.role != 'owner')
+          isOwner()
           || (isAdmin() && isLow(t.role) && isLow(n.role))
         );
     }
@@ -143,7 +142,7 @@ service cloud.firestore {
       // xóa: tự xóa tài khoản của mình, hoặc người có cấp bậc cao hơn
       allow delete: if (signedIn() && request.auth.uid == uid)
         || (verified() && hasUser() && resource.data.get('primary', false) == false
-            && (isPrimary() || (isOwner() && resource.data.role != 'owner') || (isAdmin() && isLow(resource.data.role))));
+            && (isOwner() || (isAdmin() && isLow(resource.data.role))));
     }
 
     // ---- Chủ gốc: đọc chỉ Chủ; ghi lần đầu bởi chính người nhận quyền ----
