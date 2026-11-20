@@ -1,105 +1,160 @@
 rules_version = '2';
 
-// Quy tắc truy cập "Chấm công nhiều dự án".
+// Quy tắc truy cập CenSC Crew.
 // Dán toàn bộ nội dung này vào Firebase Console > Firestore Database > Rules > Publish.
 //
-// Mô hình:
-//   users/{uid}      role: 'owner' (Chủ) hoặc 'member'. Tài khoản thường được Chủ cấp đúng MỘT dự án (projectId)
-//                    với quyền access: viewer (Xem) | commenter (Nhận xét) | editor (Chỉnh sửa), và cờ seePay (xem lương).
-//   projects/{pid}   dự án và mọi dữ liệu của nó. Chỉ Chủ hoặc tài khoản được cấp dự án đó mới đọc được.
-//   Không có quyền khách: phải đăng nhập và xác minh email.
-//   Lương, CCCD, ngân hàng... nằm riêng ở wpriv và cpriv: chỉ Chủ hoặc tài khoản được bật "xem lương" đọc được.
-//   Dự án đã nghỉ (status = stopped): tài khoản thường không ghi được nữa.
+// Vai trò (users/{uid}.role):
+//   owner    Chủ phần mềm. Chủ gốc (primary = true, ghi theo email trong admin/primary) và người kế nhiệm (owner, không có primary).
+//   admin    Admin tổng: mọi dự án, cấp quyền cho bod/eng/padmin/foreman/worker.
+//   bod      BOD: xem mọi dự án, kể cả lương. Không sửa.
+//   eng      Kỹ sư hiện trường: chấm công + hạng mục của dự án được giao, xem chi phí tổng, KHÔNG xem lương cá nhân.
+//   padmin   Admin dự án: toàn quyền trong dự án được giao (công nhân, lương, khấu trừ, phiếu lương, cài đặt).
+//   foreman  Đội trưởng: chấm công dự án được giao, xem danh sách công nhân, không xem lương.
+//   worker   Công nhân: chỉ đọc phiếu lương đã phát hành của chính mình (workerId).
+//   pending  Chưa được cấp quyền.
+// Cờ riêng: seePay (xem lương), seeCost (xem tổng chi phí). projects[] là các dự án được giao (owner/admin/bod thấy tất cả).
+// Chủ gốc: ai là Chủ gốc nằm ở admin/primary (email). Xóa tài khoản rồi đăng ký lại bằng đúng email đó vẫn lấy lại quyền Chủ.
+// Dự án đã nghỉ (status = stopped): tài khoản không phải Chủ/Admin tổng chỉ xem.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
     function verified() { return signedIn() && request.auth.token.email_verified == true; }
-    function hasUser() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function isOwner() { return verified() && hasUser() && me().role == 'owner'; }
-    function inProject(pid) { return verified() && hasUser() && me().role == 'member' && me().projectId == pid; }
+    function uref(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function hasUser() { return signedIn() && exists(uref(request.auth.uid)); }
+    function me() { return get(uref(request.auth.uid)).data; }
+    function myRole() { return me().role; }
+    function myEmail() { return request.auth.token.email.lower(); }
+
+    function isOwner() { return verified() && hasUser() && myRole() == 'owner'; }
+    function isPrimary() { return isOwner() && me().get('primary', false) == true; }
+    function isAdmin() { return verified() && hasUser() && myRole() == 'admin'; }
+    function isTop() { return isOwner() || isAdmin(); }
+
+    function glob() { return verified() && hasUser() && myRole() in ['owner', 'admin', 'bod']; }
+    function inP(pid) { return glob() || (verified() && hasUser() && pid in me().get('projects', [])); }
     function running(pid) { return get(/databases/$(database)/documents/projects/$(pid)).data.status != 'stopped'; }
-    function canRead(pid) { return isOwner() || inProject(pid); }
-    function canEdit(pid) { return isOwner() || (inProject(pid) && me().access == 'editor' && running(pid)); }
-    function canComment(pid) { return isOwner() || (inProject(pid) && me().access in ['commenter', 'editor'] && running(pid)); }
-    function seesPay(pid) { return isOwner() || (inProject(pid) && me().seePay == true); }
+    function live(pid) { return isTop() || running(pid); }
+
+    // đọc dữ liệu dự án: mọi vai trò trừ worker, pending
+    function rd(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman']; }
+    function wrAtt(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'eng', 'padmin', 'foreman'] && live(pid); }
+    function wrWorkers(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
+    function wrCats(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'eng', 'padmin'] && live(pid); }
+    function wrSet(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
+    function mgr(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin']; }
+    function seesPay(pid) { return inP(pid) && (myRole() in ['owner', 'admin', 'bod', 'padmin'] || (myRole() in ['eng', 'foreman'] && me().get('seePay', false) == true)); }
+    function editPay(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
+    function seesCost(pid) { return seesPay(pid) || (inP(pid) && (myRole() == 'eng' || me().get('seeCost', false) == true) && myRole() in ['eng', 'foreman']); }
 
     match /projects/{pid} {
-      allow get: if canRead(pid);
-      allow list: if isOwner();
-      allow write: if isOwner();
+      allow get: if inP(pid) && myRole() != 'pending';
+      allow list: if glob();
+      allow write: if isTop();
 
-      match /cats/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
-      match /workers/{id} { allow read: if canRead(pid); allow write: if canEdit(pid); }
-      match /days/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
-      match /config/{id}  { allow read: if canRead(pid); allow write: if canEdit(pid); }
-      match /meta/{id}    { allow read: if canRead(pid); allow write: if canEdit(pid); }
+      match /cats/{id}    { allow read: if rd(pid); allow write: if wrCats(pid); }
+      match /workers/{id} { allow read: if rd(pid); allow write: if wrWorkers(pid); }
+      match /days/{id}    { allow read: if rd(pid); allow write: if wrAtt(pid); }
+      match /config/{id}  { allow read: if rd(pid); allow write: if wrSet(pid); }
+      match /meta/{id}    { allow read: if rd(pid) || (inP(pid) && myRole() == 'worker'); allow write: if wrAtt(pid) || editPay(pid); }
 
       // dữ liệu riêng: lương, CCCD, ngân hàng, tiền cơm / nhà trọ
-      match /wpriv/{id}   { allow read: if seesPay(pid); allow write: if canEdit(pid) && seesPay(pid); }
-      match /cpriv/{id}   { allow read: if seesPay(pid); allow write: if canEdit(pid) && seesPay(pid); }
+      match /wpriv/{id}   { allow read: if seesPay(pid); allow write: if editPay(pid); }
+      match /cpriv/{id}   { allow read: if seesPay(pid); allow write: if editPay(pid); }
+
+      // kỳ lương (khấu trừ thuế TNCN, BHXH, công đoàn...) và phiếu lương
+      match /payroll/{id} { allow read: if seesPay(pid); allow write: if editPay(pid); }
+      match /slips/{id} {
+        allow read: if seesPay(pid)
+          || (inP(pid) && myRole() == 'worker' && resource.data.wid == me().get('workerId', '-') && resource.data.pub == true);
+        allow write: if editPay(pid);
+      }
+      // chi phí tổng theo hạng mục (không có lương từng người): Kỹ sư được xem, người có quyền lương cập nhật
+      match /costs/{id}   { allow read: if seesCost(pid); allow write: if editPay(pid); }
 
       // góp ý, đề xuất, nhận xét
       match /sug/{id} {
-        allow read: if canEdit(pid) || (canRead(pid) && resource.data.uid == request.auth.uid);
-        allow create: if canComment(pid)
+        allow read: if mgr(pid) || (rd(pid) && resource.data.uid == request.auth.uid);
+        allow create: if rd(pid) && live(pid)
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.status == 'open'
           && request.resource.data.text is string && request.resource.data.text.size() <= 1500
           && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'kind', 'date', 'text', 'status', 'reply', 'createdAt', '_ts']);
-        allow update: if canEdit(pid);
-        allow delete: if canEdit(pid);
+        allow update, delete: if mgr(pid);
       }
     }
 
     // ---- tài khoản ----
-    match /users/{uid} {
-      allow get: if signedIn() && (request.auth.uid == uid || isOwner());
-      allow list: if isOwner();
+    // Cấp bậc: Chủ gốc đổi được mọi người (trừ chính mình); người kế nhiệm đổi được mọi người trừ các Chủ;
+    // Admin tổng chỉ đổi được bod/eng/padmin/foreman/worker/pending. Không ai giáng quyền được Chủ gốc.
+    function isLow(r) { return r in ['bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']; }
+    function acctKeys() { return ['email', 'name', 'role', 'projects', 'workerId', 'seePay', 'seeCost', 'primary', 'verified', 'createdAt']; }
+    function manageOk(uid, t, n) {
+      return request.auth.uid != uid && verified() && hasUser()
+        && t.get('primary', false) == false
+        && n.get('primary', false) == false
+        && n.keys().hasOnly(acctKeys())
+        && n.email == t.email
+        && n.verified == t.verified
+        && n.get('projects', []) is list && n.get('projects', []).size() <= 100
+        && n.role in ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']
+        && (
+          isPrimary()
+          || (isOwner() && t.role != 'owner' && n.role != 'owner')
+          || (isAdmin() && isLow(t.role) && isLow(n.role))
+        );
+    }
+    // Chủ gốc đăng ký lại bằng đúng email trong admin/primary (hoặc vừa ghi admin/primary trong cùng lượt)
+    function isPrimaryEmail() {
+      return verified() && getAfter(/databases/$(database)/documents/admin/primary).data.email == myEmail();
+    }
 
-      // tự tạo hồ sơ của mình: luôn là member, chưa có dự án, chỉ xem, không xem lương
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isTop());
+      allow list: if isTop();
+
+      // tự tạo hồ sơ của mình: chờ cấp quyền, chưa có dự án, không xem lương
       allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'projectId', 'access', 'seePay', 'verified', 'createdAt'])
-        && request.resource.data.role == 'member'
-        && request.resource.data.projectId == ''
-        && request.resource.data.access == 'viewer'
+        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'projects', 'workerId', 'seePay', 'seeCost', 'verified', 'createdAt'])
+        && request.resource.data.role == 'pending'
+        && request.resource.data.projects.size() == 0
+        && request.resource.data.workerId == ''
         && request.resource.data.seePay == false
+        && request.resource.data.seeCost == false
         && request.resource.data.verified == false
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.name is string && request.resource.data.name.size() <= 60;
 
-      allow update: if
-        // Chủ cấp dự án, quyền, xem lương; chỉ trao quyền Chủ cho email đã xác minh
-        (isOwner()
-          && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'projectId', 'access', 'seePay', 'verified', 'createdAt'])
-          && request.resource.data.role in ['member', 'owner']
-          && request.resource.data.access in ['viewer', 'commenter', 'editor']
-          && (request.resource.data.role != 'owner' || resource.data.role == 'owner' || resource.data.verified == true))
-        ||
-        // người dùng chỉ sửa được tên và cờ "đã xác minh email"
-        (request.auth.uid == uid
+      allow update:
+        // 1) người dùng tự sửa tên và cờ "đã xác minh email"
+        if (request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'verified'])
           && request.resource.data.name is string && request.resource.data.name.size() <= 60
           && (request.resource.data.verified == resource.data.verified
               || (request.resource.data.verified == true && request.auth.token.email_verified == true)))
-        ||
-        // người đầu tiên nhận quyền Chủ (khi admin/owner đã ghi uid của chính mình)
-        (request.auth.uid == uid && verified()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
-          && request.resource.data.role == 'owner'
-          && get(/databases/$(database)/documents/admin/owner).data.uid == request.auth.uid);
+        // 2) Chủ gốc quay lại (hoặc vừa nhận quyền lần đầu): email khớp admin/primary
+        || (request.auth.uid == uid && verified() && isPrimaryEmail()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'primary'])
+          && request.resource.data.role == 'owner' && request.resource.data.primary == true)
+        // 3) cấp quyền theo cấp bậc
+        || manageOk(uid, resource.data, request.resource.data);
 
-      allow delete: if isOwner();
+      // xóa: tự xóa tài khoản của mình, hoặc người có cấp bậc cao hơn
+      allow delete: if (signedIn() && request.auth.uid == uid)
+        || (verified() && hasUser() && resource.data.get('primary', false) == false
+            && (isPrimary() || (isOwner() && resource.data.role != 'owner') || (isAdmin() && isLow(resource.data.role))));
     }
 
-    // ---- ghi nhận Chủ: ai đăng nhập cũng đọc được (để biết đã có Chủ chưa); chỉ ghi được lần đầu hoặc do Chủ ----
+    // ---- Chủ gốc: đọc chỉ Chủ; ghi lần đầu bởi chính người nhận quyền ----
     match /admin/{id} {
-      allow get: if signedIn();
-      allow create: if verified() && id == 'owner' && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['uid']);
-      allow update, delete: if isOwner();
+      allow get: if signedIn() && (id == 'state' || isOwner());
+      allow create: if verified() && !exists(/databases/$(database)/documents/admin/primary)
+        && ((id == 'primary' && request.resource.data.keys().hasOnly(['email', 'uid'])
+              && request.resource.data.uid == request.auth.uid && request.resource.data.email == myEmail())
+            || (id == 'state' && request.resource.data.keys().hasOnly(['claimed']) && request.resource.data.claimed == true
+                && getAfter(/databases/$(database)/documents/admin/primary).data.uid == request.auth.uid));
+      allow update: if isPrimary() && id == 'primary' && request.resource.data.keys().hasOnly(['email', 'uid']);
     }
   }
 }
