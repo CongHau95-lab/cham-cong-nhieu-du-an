@@ -7,7 +7,7 @@ function createWindow() {
     width: 1280, height: 860, minWidth: 380, minHeight: 600,
     backgroundColor: '#233064', title: 'CenSC Crew',
     icon: path.join(__dirname, '..', 'web', 'icon-512.png'),
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false }
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false }   // không làm chậm khi thu nhỏ: vẫn nhận thông báo
   });
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, '..', 'web', 'index.html'));
@@ -15,6 +15,7 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
 
+if (process.platform === 'win32') app.setAppUserModelId('vn.central.chamcongda');   // để Windows hiện thông báo của ứng dụng
 app.whenReady().then(() => {
   // Trang nạp từ file:// nên cần thêm tiêu đề CORS cho các lệnh gọi tới Google (Firebase).
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
