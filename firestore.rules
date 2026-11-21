@@ -6,13 +6,15 @@ rules_version = '2';
 // Vai trò (users/{uid}.role):
 //   owner    Chủ phần mềm (nhiều tài khoản được). Tài khoản gốc (primary = true, ghi theo email trong admin/primary) không ai giáng quyền hoặc xóa được.
 //   admin    Admin tổng: mọi dự án, cấp quyền cho bod/eng/padmin/foreman/worker.
-//   bod      BOD: xem mọi dự án, kể cả lương. Không sửa.
+//   bod      BOD: xem mọi dự án, kể cả lương. Không sửa. Gửi yêu cầu cho Chỉ huy trưởng / phó.
+//   cht      Chỉ huy trưởng / phó: đứng đầu dự án được giao, chỉ xem (chấm công, công nhân, hạng mục, chi phí tổng); nhận yêu cầu từ Chủ / Admin tổng / BOD, gửi yêu cầu cho nhân viên dự án.
 //   eng      Kỹ sư hiện trường: chấm công + hạng mục của dự án được giao, xem chi phí tổng, KHÔNG xem lương cá nhân.
 //   padmin   Admin dự án: toàn quyền trong dự án được giao (công nhân, lương, khấu trừ, phiếu lương, cài đặt).
+//   acct     Kế toán: chỉ xem chấm công, lương, phiếu lương, cài đặt (cách tính) của dự án được giao.
 //   foreman  Đội trưởng: chấm công dự án được giao, xem danh sách công nhân, không xem lương.
 //   worker   Công nhân: chỉ đọc phiếu lương đã phát hành của chính mình (workerId).
 //   pending  Chưa được cấp quyền.
-// Cờ riêng: seePay (xem lương), seeCost (xem tổng chi phí). projects[] là các dự án được giao (owner/admin/bod thấy tất cả).
+// Cờ riêng: seePay (xem lương), seeCost (xem tổng chi phí) cho cht / eng / foreman. projects[] là các dự án được giao (owner/admin/bod thấy tất cả).
 // Chủ gốc: ai là Chủ gốc nằm ở admin/primary (email). Xóa tài khoản rồi đăng ký lại bằng đúng email đó vẫn lấy lại quyền Chủ.
 // Dự án đã nghỉ (status = stopped): tài khoản không phải Chủ/Admin tổng chỉ xem.
 
@@ -38,15 +40,15 @@ service cloud.firestore {
     function live(pid) { return isTop() || running(pid); }
 
     // đọc dữ liệu dự án: mọi vai trò trừ worker, pending
-    function rd(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman']; }
+    function rd(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'bod', 'cht', 'eng', 'padmin', 'acct', 'foreman']; }
     function wrAtt(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'eng', 'padmin', 'foreman'] && live(pid); }
     function wrWorkers(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
     function wrCats(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'eng', 'padmin'] && live(pid); }
     function wrSet(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
     function mgr(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin']; }
-    function seesPay(pid) { return inP(pid) && (myRole() in ['owner', 'admin', 'bod', 'padmin'] || (myRole() in ['eng', 'foreman'] && me().get('seePay', false) == true)); }
+    function seesPay(pid) { return inP(pid) && (myRole() in ['owner', 'admin', 'bod', 'padmin', 'acct'] || (myRole() in ['cht', 'eng', 'foreman'] && me().get('seePay', false) == true)); }
     function editPay(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'padmin'] && live(pid); }
-    function seesCost(pid) { return seesPay(pid) || (inP(pid) && (myRole() == 'eng' || me().get('seeCost', false) == true) && myRole() in ['eng', 'foreman']); }
+    function seesCost(pid) { return seesPay(pid) || (inP(pid) && (myRole() in ['eng', 'cht'] || me().get('seeCost', false) == true) && myRole() in ['cht', 'eng', 'foreman']); }
 
     match /projects/{pid} {
       allow get: if inP(pid) && myRole() != 'pending';
@@ -73,22 +75,74 @@ service cloud.firestore {
       // chi phí tổng theo hạng mục (không có lương từng người): Kỹ sư được xem, người có quyền lương cập nhật
       match /costs/{id}   { allow read: if seesCost(pid); allow write: if editPay(pid); }
 
-      // góp ý, đề xuất, nhận xét
-      match /sug/{id} {
-        allow read: if mgr(pid) || (rd(pid) && resource.data.uid == request.auth.uid);
-        allow create: if rd(pid) && live(pid)
-          && request.resource.data.uid == request.auth.uid
-          && request.resource.data.status == 'open'
-          && request.resource.data.text is string && request.resource.data.text.size() <= 1500
-          && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'kind', 'date', 'text', 'status', 'reply', 'createdAt', '_ts']);
-        allow update, delete: if mgr(pid);
+      // danh bạ dự án (tên, vai trò): Chủ / Admin tổng giữ cho khớp với tài khoản; mọi người trong dự án đọc để nhắc tên
+      match /members/{id} { allow read: if rd(pid); allow write: if isTop(); }
+
+      // trao đổi nội bộ: kênh cả dự án (chat) và kênh ban quản lý (chatm). Tin nhắn không sửa được; chỉ tác giả hoặc Chủ / Admin tổng xóa mềm.
+      function chatOk() {
+        let d = request.resource.data;
+        return d.uid == request.auth.uid
+          && d.text is string && d.text.size() >= 1 && d.text.size() <= 1000
+          && d.mentions is list && d.mentions.size() <= 40
+          && d.all is bool
+          && d.keys().hasOnly(['uid', 'name', 'role', 'text', 'mentions', 'all', 'createdAt', '_ts']);
+      }
+      function chatDel() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['_del', '_ts'])
+          && (resource.data.uid == request.auth.uid || isTop());
+      }
+      function mgmt(pid) { return inP(pid) && myRole() in ['owner', 'admin', 'bod', 'cht', 'padmin', 'acct']; }
+      match /chat/{id} {
+        allow read: if rd(pid);
+        allow create: if rd(pid) && live(pid) && chatOk();
+        allow update: if rd(pid) && live(pid) && chatDel();
+        allow delete: if isTop();
+      }
+      match /chatm/{id} {
+        allow read: if mgmt(pid);
+        allow create: if mgmt(pid) && live(pid) && chatOk();
+        allow update: if mgmt(pid) && live(pid) && chatDel();
+        allow delete: if isTop();
+      }
+
+      // yêu cầu chỉnh sửa / làm rõ: Chủ, Admin tổng, BOD → Chỉ huy trưởng / phó → nhân viên dự án.
+      // Mỗi người chỉ đọc yêu cầu mình gửi hoặc mình nhận (Chủ, Admin tổng, BOD đọc cả dự án).
+      function reqNewOk() {
+        let d = request.resource.data;
+        return d.fromUid == request.auth.uid && d.fromRole == myRole()
+          && d.status == 'open' && d.kind in ['edit', 'clarify']
+          && d.text is string && d.text.size() >= 5 && d.text.size() <= 800
+          && d.log is list && d.log.size() == 0
+          && d.keys().hasOnly(['fromUid', 'fromName', 'fromRole', 'toUid', 'toName', 'toRole', 'kind', 'text', 'date', 'due', 'status', 'log', 'createdAt', 'updatedAt', '_ts'])
+          && exists(uref(d.toUid))
+          && get(uref(d.toUid)).data.role == d.toRole
+          && get(uref(d.toUid)).data.get('projects', []).hasAny([pid])
+          && ((myRole() in ['owner', 'admin', 'bod'] && d.toRole == 'cht')
+              || (myRole() == 'cht' && d.toRole in ['eng', 'padmin', 'acct', 'foreman']));
+      }
+      function reqUpOk() {
+        let d = request.resource.data;
+        let o = resource.data;
+        let u = request.auth.uid;
+        return d.diff(o).affectedKeys().hasOnly(['status', 'log', 'updatedAt', '_ts'])
+          && d.status in ['open', 'answered', 'closed']
+          && d.log is list && d.log.size() >= o.log.size() && d.log.size() <= 60
+          && ((o.toUid == u && o.status == 'open' && d.status == 'answered')
+              || (o.fromUid == u && d.status in ['open', 'closed'])
+              || isTop());
+      }
+      match /reqs/{id} {
+        allow read: if rd(pid) && (glob() || resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+        allow create: if rd(pid) && live(pid) && reqNewOk();
+        allow update: if rd(pid) && live(pid) && reqUpOk();
+        allow delete: if isTop();
       }
     }
 
     // ---- tài khoản ----
     // Cấp bậc: Chủ phần mềm đổi được mọi người (trừ chính mình), kể cả cấp thêm Chủ phần mềm khác;
     // Admin tổng chỉ đổi được bod/eng/padmin/foreman/worker/pending. Không ai giáng quyền hoặc xóa được tài khoản gốc (primary).
-    function isLow(r) { return r in ['bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']; }
+    function isLow(r) { return r in ['bod', 'cht', 'eng', 'padmin', 'acct', 'foreman', 'worker', 'pending']; }
     function acctKeys() { return ['email', 'name', 'role', 'projects', 'workerId', 'seePay', 'seeCost', 'primary', 'verified', 'createdAt']; }
     function manageOk(uid, t, n) {
       return request.auth.uid != uid && verified() && hasUser()
@@ -98,7 +152,7 @@ service cloud.firestore {
         && n.email == t.email
         && n.verified == t.verified
         && n.get('projects', []) is list && n.get('projects', []).size() <= 100
-        && n.role in ['owner', 'admin', 'bod', 'eng', 'padmin', 'foreman', 'worker', 'pending']
+        && n.role in ['owner', 'admin', 'bod', 'cht', 'eng', 'padmin', 'acct', 'foreman', 'worker', 'pending']
         && (
           isOwner()
           || (isAdmin() && isLow(t.role) && isLow(n.role))
@@ -138,6 +192,23 @@ service cloud.firestore {
           && request.resource.data.role == 'owner' && request.resource.data.primary == true)
         // 3) cấp quyền theo cấp bậc
         || manageOk(uid, resource.data, request.resource.data);
+
+      // hộp thông báo của từng người: người trong ban điều hành gửi tới (nhắc tên, yêu cầu, trả lời); chỉ chủ hộp đọc, đánh dấu đã đọc, xóa
+      match /notifs/{nid} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', '_ts'])
+          && request.resource.data.read is bool;
+        allow create: if verified() && hasUser() && myRole() in ['owner', 'admin', 'bod', 'cht', 'eng', 'padmin', 'acct', 'foreman']
+          && request.auth.uid != uid
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.read == false
+          && request.resource.data.kind in ['mention', 'req', 'reply']
+          && request.resource.data.title is string && request.resource.data.title.size() <= 200
+          && request.resource.data.text is string && request.resource.data.text.size() <= 300
+          && request.resource.data.keys().hasOnly(['kind', 'fromUid', 'fromName', 'pid', 'pname', 'title', 'text', 'ref', 'read', 'createdAt', '_ts'])
+          && inP(request.resource.data.pid);
+      }
 
       // xóa: tự xóa tài khoản của mình, hoặc người có cấp bậc cao hơn
       allow delete: if (signedIn() && request.auth.uid == uid)

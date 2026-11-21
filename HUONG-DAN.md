@@ -1,8 +1,8 @@
 # CenSC Crew: hướng dẫn thiết lập
 
 App quản lý nhiều dự án, mỗi dự án có công nhân, hạng mục công việc (cốp pha, cốt thép…), lương theo ngày hiệu lực.
-Chủ thấy mọi dự án. Mỗi tài khoản khác chỉ thấy đúng một dự án được chủ cấp, với quyền Xem / Nhận xét / Chỉnh sửa
-và công tắc "Xem lương" (mặc định tắt).
+Chủ thấy mọi dự án. Tài khoản khác chỉ thấy các dự án được cấp, theo vai trò (bảng ở mục 3b)
+và công tắc "Xem lương" (mặc định tắt). Có kênh Yêu cầu và Trao đổi nội bộ ngay trong app, kèm thông báo trên thiết bị.
 
 ## 1. Firebase (đã tạo sẵn)
 Project **cham-cong-da-du-an-4a9d3** (gói Spark, miễn phí, vùng Singapore) đã có đủ:
@@ -31,19 +31,31 @@ Tab Actions > Build chạy ra: trang web (iPhone cài từ Safari: Chia sẻ > T
 |---|---|
 | Chủ phần mềm | Toàn quyền với mọi dự án, mọi tài khoản; được cấp thêm Chủ phần mềm khác. |
 | Admin tổng | Mọi dự án, mọi số liệu kể cả lương. Cấp quyền cho BOD trở xuống. Không đổi được Chủ hay Admin tổng khác. |
-| BOD | Xem mọi dự án, mọi chi phí và lương. Không chỉnh sửa. |
+| BOD | Xem mọi dự án, mọi chi phí và lương. Không chỉnh sửa. Gửi yêu cầu chỉnh sửa / làm rõ cho Chỉ huy trưởng / phó. |
+| Chỉ huy trưởng / phó (dùng chung một vai trò) | Đứng đầu dự án được giao. Chỉ xem chấm công, công nhân, hạng mục, tổng chi phí (không tự sửa; lương cá nhân chỉ thấy khi Chủ bật "Xem lương"). Nhận yêu cầu từ Chủ / Admin tổng / BOD và gửi yêu cầu chỉnh sửa / làm rõ cho kỹ sư, admin dự án, kế toán, đội trưởng. |
 | Kỹ sư hiện trường | Chấm công, sửa hạng mục, xem công nhân; xem tổng chi phí theo hạng mục nhưng không xem lương cá nhân. |
 | Admin dự án | Trong dự án được giao: công nhân, chấm công, nhập thuế TNCN/BHXH/công đoàn, xuất bảng lương và phiếu lương. Không quản lý tài khoản. |
+| Kế toán | Chỉ xem chấm công, bảng lương, phiếu lương và Cài đặt (cách tính lương) của dự án được giao. Không sửa được gì. |
 | Đội trưởng dự án (foreman) | Chấm công trong dự án được giao; chỉ xem công nhân và hạng mục, không xem lương và chi phí. |
 | Công nhân | Chỉ xem phiếu lương của chính mình khi được công bố. |
 Dự án đã dừng: mọi vai trò trừ Chủ/Admin tổng chỉ được xem.
 
 **Cấp thêm Chủ phần mềm**: Tài khoản > chọn người > Vai trò = Chủ phần mềm > Lưu.
 
-## 3c. Lương, phiếu lương, phân tích
+## 3c. Yêu cầu, Trao đổi, thông báo nhắc hẹn
+- Tab **Yêu cầu**: Chủ / Admin tổng / BOD gửi yêu cầu *chỉnh sửa* hoặc *làm rõ* cho Chỉ huy trưởng / phó của dự án; Chỉ huy trưởng / phó gửi tiếp cho nhân viên dự án. Mỗi yêu cầu có nội dung, ngày liên quan, hạn trả lời. Người nhận trả lời, người gửi bấm "Đã rõ, đóng" hoặc "Cần bổ sung". Mỗi lần gửi tối đa 8 người. Mỗi người chỉ thấy yêu cầu mình gửi hoặc nhận (Chủ, Admin tổng, BOD thấy cả dự án).
+- Tab **Trao đổi**: kênh "Cả dự án" (mọi người trừ công nhân) và kênh "Ban quản lý" (Chủ, Admin tổng, BOD, Chỉ huy, Admin dự án, Kế toán; dùng cho việc nhạy cảm như lương). Gõ **@** rồi chọn tên để nhắc một người, **@Tất cả** để nhắc cả kênh. Người được nhắc nhận thông báo. Tin nhắn không sửa được; chỉ người viết hoặc Chủ / Admin tổng xóa được.
+- **Thông báo**: biểu tượng chuông cạnh tên tài khoản. Có yêu cầu mới, được nhắc tên, có câu trả lời, hoặc yêu cầu sắp đến hạn / quá hạn (nhắc một lần mỗi ngày) thì chuông có số, app hiện thông báo, và thiết bị hiện thông báo hệ thống (Windows, macOS, Android, iPhone cài ra màn hình chính, trình duyệt). Lần đầu bấm "Bật thông báo" và cho phép.
+- Giới hạn: thông báo hệ thống hiện khi app đang mở (kể cả thu nhỏ hoặc ở tab khác). App đóng hẳn thì thông báo chờ ở chuông, mở lên là thấy. Muốn đẩy cả khi đóng hẳn app cần thêm Firebase Cloud Messaging và gói Blaze (chưa bật).
+- Bản Android dựng bằng GitHub Actions tự thêm plugin `@capacitor/local-notifications` (đã có trong `package.json`).
+- Danh bạ để nhắc tên và chọn người nhận lấy từ Tài khoản: Chủ hoặc Admin tổng mở app là danh bạ dự án tự cập nhật; cấp hoặc đổi quyền ai xong cũng tự cập nhật.
+
+## 3d. Lương, phiếu lương, phân tích
 - Tab **Lương**: chọn kỳ (lịch tùy chỉnh) hoặc theo hạng mục. Nhập thuế TNCN, BHXH, phí công đoàn, khoản khác cho từng người (Admin dự án, Admin tổng, Chủ). Xuất bảng lương Excel (3 trang: Bảng lương, Theo hạng mục, Chi tiết hạng mục).
 - **Phiếu lương**: xuất PDF / ảnh PNG / Excel, mỗi người một file hoặc gộp một file, gửi từng nhân viên. Bấm "Phát hành phiếu cho công nhân" để công nhân tự xem phiếu của mình trong tab Phiếu lương.
 - Tab **Chi phí**: biểu đồ chi phí và số công theo hạng mục, theo ngày. Xuất Excel kèm biểu đồ thật.
+- **Bảng xác nhận công nhật**: tab Tháng (mọi vai trò xem được chấm công) hoặc tab Lương > Xuất bảng xác nhận công nhật. Chọn Từ ngày, Đến ngày (mặc định cả tháng) rồi xuất Excel. Bảng giống BCC nhưng không có lương, chỉ có hai ô ký: Người lập và Chỉ huy trưởng dự án (Xác nhận); không có ô ký của nhà thầu phụ và team.
+- Phiếu lương và mọi bảng biểu Excel/PDF dùng logo Central SC.
 - **Chấm công phân bổ**: với người làm gián tiếp (foreman, kỹ sư, admin dự án), đánh dấu "Gián tiếp" trong hồ sơ rồi chọn ký hiệu A khi chấm công. Chi phí người đó được chia cho các hạng mục có làm trong ngày, tỷ lệ theo chi phí công nhân trực tiếp.
 
 ## 4. Cách tính (theo mẫu BCC)
